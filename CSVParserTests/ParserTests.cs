@@ -68,6 +68,17 @@ namespace CSVParserTests
 			Assert.IsTrue(result.Count == 2);
 		}
 
+		[TestMethod]
+		public void CanParseSimpleObjectDoubleDashWithQualifier()
+		{
+			const string simpleCSV = "1,2,\"three,--3\",\"four--\"--3,4,five,six";
+			CSVParser parser = new CSVParser();
+			List<SimpleObject> result = parser.Parse<SimpleObject>(simpleCSV, "--");
+
+			Assert.IsNotNull(result);
+			Assert.IsTrue(result.Count == 2);
+		}
+
 		#endregion
 
 		#region Edge Case
@@ -148,6 +159,14 @@ namespace CSVParserTests
 
 			CSVParser parser = new CSVParser();
 			Assert.ThrowsException<CSVParserException>(() => parser.Parse<SimpleObject>(simpleCSV1, "--"));
+		}
+
+		[TestMethod]
+		public void ParserThrowsExceptionOnUnclosedQualifiers()
+		{
+			const string simpleCSV = "1,2,\"three,four--3,4,five,six";
+			CSVParser parser = new CSVParser();
+			Assert.ThrowsException<CSVParserException>(() => parser.Parse<SimpleObject>(simpleCSV, "--"));			
 		}
 
 		#endregion

@@ -2,14 +2,21 @@
 using System.Collections.Generic;
 using System.Linq;
 using System.Reflection;
+using System.Text;
 
 namespace CSV
 {
 	/// <summary>
-	/// A generic CSV parser. Still needs to handle qualifiers...
+	/// A generic CSV parser.
 	/// </summary>
     public class CSVParser
     {
+
+		#region Constants
+
+		private const Char CommaToken = ',';
+
+	#endregion
 
 	#region Public Methods
 
@@ -18,7 +25,7 @@ namespace CSV
 		/// </summary>
 		/// <typeparam name="T">The type of object the data should be deserialized as</typeparam>
 		/// <returns>A List of object T</returns>
-		public List<T> Parse<T>(string csvString, string separator = "\n") where T : class
+		public List<T> Parse<T>(string csvString, string separator = "\n", char qualifier = '"') where T : class
 		{
 			if(string.IsNullOrEmpty(separator))
 			{
@@ -39,30 +46,29 @@ namespace CSV
 			{
 				return result;
 			}
-
-			//TODO: create a "more intelligent" line parser
-			string[] linesSeparatedBySeparator = csvString.Split(new string[] { separator }, StringSplitOptions.None).Where(s => !string.IsNullOrWhiteSpace(s)).ToArray();
 			
+			List<List<string>>linesSeparatedBySeparator = GetParsedLines(csvString, separator, qualifier);
+
 			MethodInfo getGenericValueMethod = typeof(CSVParser).GetMethod(nameof(GetParsedValue), BindingFlags.NonPublic | BindingFlags.Instance);
 			Dictionary<Type, MethodInfo> methodCache = new Dictionary<Type, MethodInfo>();
 
-			foreach (string line in linesSeparatedBySeparator)
+			foreach (List<string> line in linesSeparatedBySeparator)
 			{
-				string[] lineData = line.Split(',');
 				T instance = (T)Activator.CreateInstance(typeOfT);
-				for(int i = 0; i < lineData.Length && i < orderMap.Count; i++)
+				
+				for(int i = 0; i < line.Count && i < orderMap.Count; i++)
 				{
 					try
 					{
 						MethodInfo getSpecificValueMethod;
 						if (methodCache.TryGetValue(orderMap[i].Type, out getSpecificValueMethod))
 						{
-							typeOfT.GetProperty(orderMap[i].Name).SetValue(instance, getSpecificValueMethod.Invoke(this, new[] { lineData[i] }));
+							typeOfT.GetProperty(orderMap[i].Name).SetValue(instance, getSpecificValueMethod.Invoke(this, new[] { line[i] }));
 						}
 						else
 						{
 							getSpecificValueMethod = getGenericValueMethod.MakeGenericMethod(typeOfT.GetProperty(orderMap[i].Name).PropertyType);
-							typeOfT.GetProperty(orderMap[i].Name).SetValue(instance, getSpecificValueMethod.Invoke(this, new[] { lineData[i] }));
+							typeOfT.GetProperty(orderMap[i].Name).SetValue(instance, getSpecificValueMethod.Invoke(this, new[] { line[i] }));
 						}
 					}
 					catch(Exception ex)
@@ -80,6 +86,71 @@ namespace CSV
 	#endregion
 
 	#region Private Methods
+
+		private List<List<string>> GetParsedLines(string csvString, string separator, char qualifier)
+		{
+			List<List<string>> lines = new List<List<string>>();
+			StringBuilder bob = new StringBuilder();
+			bool currentlyQualified = false;
+			List<string> lineData = new List<string>();
+
+			for (int i = 0; i < csvString.Length; i++)
+			{
+				if (csvString[i] == qualifier)
+				{
+					currentlyQualified = !currentlyQualified;
+				}
+				else if (!currentlyQualified && csvString[i] == separator[0])
+				{
+					bool shouldSplit = true;
+					for (int j = i; j < i + separator.Length; j++)
+					{
+						if (csvString[j] != separator[j - i])
+						{
+							shouldSplit = false;
+							break;
+						}
+					}
+
+					if (shouldSplit)
+					{
+						if (bob.Length > 0)
+						{
+							lineData.Add(bob.ToString());
+						}
+						lines.Add(lineData);
+						lineData = new List<string>();
+						bob.Clear();
+						i += separator.Length - 1;
+					}
+				}
+				else if (!currentlyQualified && csvString[i] == CommaToken)
+				{
+					lineData.Add(bob.ToString());
+					bob.Clear();
+				}
+				else
+				{
+					bob.Append(csvString[i]);
+				}
+			}
+
+			if (currentlyQualified)
+			{
+				throw new CSVParserException("Qualifier never closed, invalid CSV!");
+			}
+
+			if(bob.Length > 0)
+			{
+				lineData.Add(bob.ToString());
+			}
+			if (lineData.Any())
+			{
+				lines.Add(lineData);
+			}
+
+			return lines;
+		}
 
 		private T GetParsedValue<T>(string data)
 		{
